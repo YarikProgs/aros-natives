@@ -1,6 +1,5 @@
 package net.aros.natives.data;
 
-import net.aros.natives.util.AnUtils;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
@@ -8,7 +7,6 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.charset.StandardCharsets;
 
 @SuppressWarnings("preview")
 public final class MemCodecs {
