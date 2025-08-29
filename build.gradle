@@ -1,0 +1,27 @@
+plugins {
+    id 'java'
+}
+
+group = project.maven_group
+version = project.version
+
+base {
+    archivesName = archives_name
+}
+
+repositories {
+    mavenCentral()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = "UTF-8"
+    it.options.release = 21
+    options.compilerArgs += "--enable-preview"
+}
+
+dependencies {
+    implementation "org.jetbrains:annotations:24.0.0"
+
+    implementation "org.ow2.asm:asm:6.0"
+    implementation "org.ow2.asm:asm-commons:9.7"
+}
