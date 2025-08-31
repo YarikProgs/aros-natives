@@ -24,6 +24,7 @@ public final class AnNativeValue<T> {
     }
 
     public void decode(@NotNull MemorySegment segment) {
+        if (immutable) return;
         set(codec.decodeStart(segment));
     }
 

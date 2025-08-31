@@ -3,6 +3,7 @@ package net.aros.natives.implementor;
 import net.aros.natives.implementor.generators.ClassImplBytecodeGenerator;
 import net.aros.natives.implementor.utils.AnNamingUtils;
 import net.aros.natives.implementor.utils.MethodData;
+import net.aros.natives.implementor.utils.NativeMethodBuilder;
 import org.jetbrains.annotations.NotNull;
 import org.objectweb.asm.Opcodes;
 
@@ -12,11 +13,16 @@ import java.lang.foreign.FunctionDescriptor;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.function.UnaryOperator;
 
 @SuppressWarnings("preview")
 public class AnImplementor implements Opcodes {
     private AnImplementor() {
         throw new UnsupportedOperationException("utility class");
+    }
+
+    public static <T> @NotNull T implementAndInitialize(Class<T> interfaceClazz, @NotNull UnaryOperator<NativeMethodBuilder<T>> builder) {
+        return implementAndInitialize(interfaceClazz, builder.apply(new NativeMethodBuilder<>(interfaceClazz)).build());
     }
 
     public static <T> @NotNull T implementAndInitialize(Class<T> interfaceClazz, List<MethodData> methods) {

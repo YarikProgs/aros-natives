@@ -14,15 +14,15 @@ public final class MemCodecs {
     private MemCodecs() {
     }
 
-    public static final MemCodec<Byte> BYTE = MemCodec.of(ValueLayout.JAVA_BYTE);
-    public static final MemCodec<Character> CHAR = MemCodec.of(ValueLayout.JAVA_CHAR);
-    public static final MemCodec<Short> SHORT = MemCodec.of(ValueLayout.JAVA_SHORT);
-    public static final MemCodec<Integer> INT = MemCodec.of(ValueLayout.JAVA_INT);
-    public static final MemCodec<Long> LONG = MemCodec.of(ValueLayout.JAVA_LONG);
-    public static final MemCodec<Float> FLOAT = MemCodec.of(ValueLayout.JAVA_FLOAT);
-    public static final MemCodec<Double> DOUBLE = MemCodec.of(ValueLayout.JAVA_DOUBLE);
-    public static final MemCodec<Boolean> BOOLEAN = MemCodec.of(ValueLayout.JAVA_BOOLEAN);
-    public static final MemCodec<MemorySegment> ADDRESS = MemCodec.of(ValueLayout.ADDRESS);
+    public static final MemCodec<Byte> BYTE = MemCodec.of(byte.class, ValueLayout.JAVA_BYTE);
+    public static final MemCodec<Character> CHAR = MemCodec.of(char.class, ValueLayout.JAVA_CHAR);
+    public static final MemCodec<Short> SHORT = MemCodec.of(short.class, ValueLayout.JAVA_SHORT);
+    public static final MemCodec<Integer> INT = MemCodec.of(int.class, ValueLayout.JAVA_INT);
+    public static final MemCodec<Long> LONG = MemCodec.of(long.class, ValueLayout.JAVA_LONG);
+    public static final MemCodec<Float> FLOAT = MemCodec.of(float.class, ValueLayout.JAVA_FLOAT);
+    public static final MemCodec<Double> DOUBLE = MemCodec.of(double.class, ValueLayout.JAVA_DOUBLE);
+    public static final MemCodec<Boolean> BOOLEAN = MemCodec.of(boolean.class, ValueLayout.JAVA_BOOLEAN);
+    public static final MemCodec<MemorySegment> ADDRESS = MemCodec.of(MemorySegment.class, ValueLayout.ADDRESS);
 
     public static final MemCodec<String> STRING_128_UTF8 = stringUtf8(128);
     public static final MemCodec<String> STRING_256_UTF8 = stringUtf8(256);
@@ -54,6 +54,11 @@ public final class MemCodecs {
                     throw new IllegalArgumentException("Array must be non-null and not bigger than %d".formatted(maxLength - 1));
                 }
                 segment.setUtf8String(offset, element);
+            }
+
+            @Override
+            public Class<?> getNativeArgumentClass() {
+                return MemorySegment.class;
             }
         };
     }

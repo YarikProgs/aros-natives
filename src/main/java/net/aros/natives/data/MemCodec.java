@@ -18,16 +18,21 @@ import java.util.function.IntFunction;
 @SuppressWarnings("preview")
 public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
     @SuppressWarnings("unchecked")
-    static <T> @NotNull MemCodec<T> of(ValueLayout layout) {
+    static <T> @NotNull MemCodec<T> of(Class<T> type, ValueLayout layout) {
+        if (layout != ValueLayout.ADDRESS && !type.isPrimitive()) {
+            throw new IllegalArgumentException("Illegal type provided for %s: %s. Either use primitive type or address layout".formatted(type.getName(), layout.toString()));
+        }
         VarHandle handle = MethodHandles.memorySegmentViewVarHandle(layout);
         return of(
+                type.isPrimitive() ? type : AnNativeValue.class,
                 (_, segment, offset, value) -> handle.set(segment, offset, value),
                 (segment, offset) -> (T) handle.get(segment, offset),
-                layout.byteSize(), layout);
+                layout
+        );
     }
 
     @Contract(value = "_, _, _, _ -> new", pure = true)
-    static <T> @NotNull MemCodec<T> of(MemEncoder<T> encoder, MemDecoder<T> decoder, long byteSize, MemoryLayout layout) {
+    static <T> @NotNull MemCodec<T> of(Class<?> type, MemEncoder<T> encoder, MemDecoder<T> decoder, MemoryLayout layout) {
         return new MemCodec<>() {
             @Override
             public T decode(MemorySegment segment, long offset) {
@@ -41,12 +46,17 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
 
             @Override
             public long byteSize() {
-                return byteSize;
+                return layout.byteSize();
             }
 
             @Override
             public MemoryLayout getLayout() {
                 return layout;
+            }
+
+            @Override
+            public Class<?> getNativeArgumentClass() {
+                return type;
             }
         };
     }
@@ -72,12 +82,16 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
             public MemoryLayout getLayout() {
                 return MemCodec.this.getLayout();
             }
+
+            @Override
+            public Class<?> getNativeArgumentClass() {
+                return MemCodec.this.getNativeArgumentClass();
+            }
         };
     }
 
     default MemCodec<T> pointer() {
         long size = byteSize();
-        MemCodec<T> elementCodec = this;
         return new MemCodec<>() {
             @Override
             public long byteSize() {
@@ -92,13 +106,58 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
             @Override
             public T decode(MemorySegment segment, long offset) {
                 MemorySegment value = MemCodecs.ADDRESS.decode(segment, offset);
-                return value == MemorySegment.NULL ? null : elementCodec.decodeStart(value.reinterpret(size));
+                return value == MemorySegment.NULL ? null : MemCodec.this.decodeStart(value.reinterpret(size));
             }
 
             @Override
             public void encode(Arena arena, MemorySegment segment, long offset, T element) {
-                MemorySegment value = element == null ? MemorySegment.NULL : elementCodec.allocateAndEncode(arena, element);
+                MemorySegment value = element == null ? MemorySegment.NULL : MemCodec.this.allocateAndEncode(arena, element);
                 MemCodecs.ADDRESS.encode(arena, segment, offset, value);
+            }
+
+            @Override
+            public Class<?> getNativeArgumentClass() {
+                return AnNativeValue.class;
+            }
+        };
+    }
+
+    default @NotNull MemCodec<T[]> array(IntFunction<T[]> arrayFactory, int length) {
+        if (length < 0) throw new IllegalArgumentException("Length must be non-negative");
+        long size = byteSize();
+        return new MemCodec<>() {
+            @Override
+            public T[] decode(MemorySegment segment, long offset) {
+                T[] array = arrayFactory.apply(length);
+                for (int i = 0; i < length; i++) {
+                    array[i] = MemCodec.this.decode(segment, offset + size * i);
+                }
+                return array;
+            }
+
+            @Override
+            public void encode(Arena arena, MemorySegment segment, long offset, T[] element) {
+                if (element == null || element.length != length) {
+                    throw new IllegalArgumentException("Array must be non-null and with length of %d".formatted(length));
+                }
+                for (int i = 0; i < length; i++) {
+                    MemCodec.this.encode(arena, segment, offset + size * i, element[i]);
+                }
+            }
+
+            @Override
+            public long byteSize() {
+                return length * size;
+            }
+
+            @Override
+            public MemoryLayout getLayout() {
+                return MemoryLayout.sequenceLayout(length, MemCodec.this.getLayout());
+            }
+
+            @Override
+            public Class<?> getNativeArgumentClass() {
+                return AnNativeValue.class;
             }
         };
     }
@@ -129,41 +188,10 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
             public MemoryLayout getLayout() {
                 return MemoryLayout.structLayout(codec1.getLayout());
             }
-        };
-    }
-
-    default @NotNull MemCodec<T[]> array(IntFunction<T[]> arrayFactory, int length) {
-        if (length < 0) throw new IllegalArgumentException("Length must be non-negative");
-        long size = byteSize();
-        MemCodec<T> elementCodec = this;
-        return new MemCodec<>() {
-            @Override
-            public T[] decode(MemorySegment segment, long offset) {
-                T[] array = arrayFactory.apply(length);
-                for (int i = 0; i < length; i++) {
-                    array[i] = elementCodec.decode(segment, offset + size * i);
-                }
-                return array;
-            }
 
             @Override
-            public void encode(Arena arena, MemorySegment segment, long offset, T[] element) {
-                if (element == null || element.length != length) {
-                    throw new IllegalArgumentException("Array must be non-null and with length of %d".formatted(length));
-                }
-                for (int i = 0; i < length; i++) {
-                    elementCodec.encode(arena, segment, offset + size * i, element[i]);
-                }
-            }
-
-            @Override
-            public long byteSize() {
-                return length * size;
-            }
-
-            @Override
-            public MemoryLayout getLayout() {
-                return MemoryLayout.sequenceLayout(length, elementCodec.getLayout());
+            public Class<?> getNativeArgumentClass() {
+                return AnNativeValue.class;
             }
         };
     }
@@ -196,6 +224,11 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
             @Override
             public MemoryLayout getLayout() {
                 return MemoryLayout.structLayout(codec1.getLayout(), codec2.getLayout());
+            }
+
+            @Override
+            public Class<?> getNativeArgumentClass() {
+                return AnNativeValue.class;
             }
         };
     }
@@ -233,6 +266,11 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
             @Override
             public MemoryLayout getLayout() {
                 return MemoryLayout.structLayout(codec1.getLayout(), codec2.getLayout(), codec3.getLayout());
+            }
+
+            @Override
+            public Class<?> getNativeArgumentClass() {
+                return AnNativeValue.class;
             }
         };
     }
@@ -273,6 +311,11 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
             @Override
             public MemoryLayout getLayout() {
                 return MemoryLayout.structLayout(codec1.getLayout(), codec2.getLayout(), codec3.getLayout(), codec4.getLayout());
+            }
+
+            @Override
+            public Class<?> getNativeArgumentClass() {
+                return AnNativeValue.class;
             }
         };
     }
@@ -316,6 +359,11 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
             @Override
             public MemoryLayout getLayout() {
                 return MemoryLayout.structLayout(codec1.getLayout(), codec2.getLayout(), codec3.getLayout(), codec4.getLayout(), codec5.getLayout());
+            }
+
+            @Override
+            public Class<?> getNativeArgumentClass() {
+                return AnNativeValue.class;
             }
         };
     }
@@ -363,6 +411,11 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
             public MemoryLayout getLayout() {
                 return MemoryLayout.structLayout(codec1.getLayout(), codec2.getLayout(), codec3.getLayout(), codec4.getLayout(), codec5.getLayout(), codec6.getLayout());
             }
+
+            @Override
+            public Class<?> getNativeArgumentClass() {
+                return AnNativeValue.class;
+            }
         };
     }
 
@@ -379,6 +432,8 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
     }
 
     long byteSize();
+
+    Class<?> getNativeArgumentClass();
 
     MemoryLayout getLayout();
 }
