@@ -1,9 +1,7 @@
 plugins {
     id 'java'
+    id 'maven-publish'
 }
-
-group = project.maven_group
-version = project.version
 
 base {
     archivesName = archives_name
@@ -11,6 +9,17 @@ base {
 
 repositories {
     mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+
+    withSourcesJar()
+
+    targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = JavaVersion.VERSION_21
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -24,4 +33,16 @@ dependencies {
 
     implementation "org.ow2.asm:asm:6.0"
     implementation "org.ow2.asm:asm-commons:9.7"
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            groupId = project.group
+            artifactId = project.archives_name
+            version = project.version
+
+            from components.java
+        }
+    }
 }
