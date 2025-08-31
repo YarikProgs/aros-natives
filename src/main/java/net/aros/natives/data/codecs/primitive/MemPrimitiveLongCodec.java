@@ -1,7 +1,6 @@
 package net.aros.natives.data.codecs.primitive;
 
 import net.aros.natives.data.codecs.BaseCodec;
-import net.aros.natives.data.codecs.array.CharArrayCodec;
 import net.aros.natives.data.codecs.array.LongArrayCodec;
 import org.jetbrains.annotations.NotNull;
 

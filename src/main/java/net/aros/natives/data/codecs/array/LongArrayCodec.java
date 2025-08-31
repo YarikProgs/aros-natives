@@ -2,7 +2,6 @@ package net.aros.natives.data.codecs.array;
 
 import net.aros.natives.data.AnNativeValue;
 import net.aros.natives.data.MemCodec;
-import net.aros.natives.data.MemCodecs;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.foreign.Arena;

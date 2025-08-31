@@ -4,11 +4,8 @@ import net.aros.natives.implementor.utils.AnNamingUtils;
 import net.aros.natives.implementor.utils.MethodData;
 import org.objectweb.asm.*;
 
-import java.lang.foreign.FunctionDescriptor;
 import java.util.List;
 import java.util.Objects;
-
-import static net.aros.natives.implementor.utils.AnNamingUtils.getMethodDescriptor;
 
 @SuppressWarnings("preview")
 public class ClassImplBytecodeGenerator implements Opcodes {
