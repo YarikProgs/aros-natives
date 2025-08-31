@@ -79,20 +79,20 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
     }
 
     @Contract(value = "_, _, _ -> new", pure = true)
-    static <C, T1> @NotNull MemCodec<C> tuple(MemCodec<T1> codec1, Function<C, T1> from1,
+    static <C, T1> @NotNull MemCodec<C> struct(MemCodec<T1> codec1, Function<C, T1> from1,
                                               Function<T1, C> to) {
         return new StructCodec1<>(codec1, from1, to);
     }
 
     @Contract(value = "_, _, _, _, _ -> new", pure = true)
-    static <C, T1, T2> @NotNull MemCodec<C> tuple(MemCodec<T1> codec1, Function<C, T1> from1,
+    static <C, T1, T2> @NotNull MemCodec<C> struct(MemCodec<T1> codec1, Function<C, T1> from1,
                                                   MemCodec<T2> codec2, Function<C, T2> from2,
                                                   BiFunction<T1, T2, C> to) {
         return new StructCodec2<>(codec1, from1, codec2, from2, to);
     }
 
     @Contract(value = "_, _, _, _, _, _, _ -> new", pure = true)
-    static <C, T1, T2, T3> @NotNull MemCodec<C> tuple(MemCodec<T1> codec1, Function<C, T1> from1,
+    static <C, T1, T2, T3> @NotNull MemCodec<C> struct(MemCodec<T1> codec1, Function<C, T1> from1,
                                                       MemCodec<T2> codec2, Function<C, T2> from2,
                                                       MemCodec<T3> codec3, Function<C, T3> from3,
                                                       Function3<T1, T2, T3, C> to) {
@@ -100,7 +100,7 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
     }
 
     @Contract(value = "_, _, _, _, _, _, _, _, _ -> new", pure = true)
-    static <C, T1, T2, T3, T4> @NotNull MemCodec<C> tuple(MemCodec<T1> codec1, Function<C, T1> from1,
+    static <C, T1, T2, T3, T4> @NotNull MemCodec<C> struct(MemCodec<T1> codec1, Function<C, T1> from1,
                                                           MemCodec<T2> codec2, Function<C, T2> from2,
                                                           MemCodec<T3> codec3, Function<C, T3> from3,
                                                           MemCodec<T4> codec4, Function<C, T4> from4,
@@ -109,7 +109,7 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
     }
 
     @Contract(value = "_, _, _, _, _, _, _, _, _, _, _ -> new", pure = true)
-    static <C, T1, T2, T3, T4, T5> @NotNull MemCodec<C> tuple(MemCodec<T1> codec1, Function<C, T1> from1,
+    static <C, T1, T2, T3, T4, T5> @NotNull MemCodec<C> struct(MemCodec<T1> codec1, Function<C, T1> from1,
                                                               MemCodec<T2> codec2, Function<C, T2> from2,
                                                               MemCodec<T3> codec3, Function<C, T3> from3,
                                                               MemCodec<T4> codec4, Function<C, T4> from4,
@@ -120,7 +120,7 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
     }
 
     @Contract(value = "_, _, _, _, _, _, _, _, _, _, _, _, _ -> new", pure = true)
-    static <C, T1, T2, T3, T4, T5, T6> @NotNull MemCodec<C> tuple(MemCodec<T1> codec1, Function<C, T1> from1,
+    static <C, T1, T2, T3, T4, T5, T6> @NotNull MemCodec<C> struct(MemCodec<T1> codec1, Function<C, T1> from1,
                                                                   MemCodec<T2> codec2, Function<C, T2> from2,
                                                                   MemCodec<T3> codec3, Function<C, T3> from3,
                                                                   MemCodec<T4> codec4, Function<C, T4> from4,
