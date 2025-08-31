@@ -45,12 +45,12 @@ public class MethodsBytecodeGenerator implements Opcodes {
     private boolean hasReturn;
     private Type returnCarrierType;
     private Type methodReturnType;
-    private Label tryStart;
     private int arenaLocal;
     private int[] memoryLocals;
     private int resultLocal;
     private int returnLocal;
     private int handleParamCount;
+    private boolean allParamsArePrimitive;
 
 
     MethodsBytecodeGenerator(@NotNull ClassWriter classWriter, String implementationInternalName, Class<?> interfaceClass, List<MethodData> methods) {
@@ -65,7 +65,11 @@ public class MethodsBytecodeGenerator implements Opcodes {
     public void addMethodsImplementation() {
         for (MethodData method : methods) {
             startMethod(method);
-            generateMethodBody(method);
+            gatherMethodInfo(method);
+            if (allParamsArePrimitive)
+                generateSimpleMethodBody(method);
+            else
+                generateMethodBody(method);
             generatorAdapter.endMethod();
         }
         classWriter.visitEnd();
@@ -83,12 +87,21 @@ public class MethodsBytecodeGenerator implements Opcodes {
         generatorAdapter.visitCode();
     }
 
-    private void generateMethodBody(@NotNull MethodData method) {
+    private void gatherMethodInfo(@NotNull MethodData method) {
         methodReturnType = Type.getReturnType(method.descriptor());
         prepareTypesAndLocals(method);
+        allParamsArePrimitive = parameterCarrierTypes.stream().noneMatch(this::isObjectOrArray);
+    }
+
+    private void generateSimpleMethodBody(@NotNull MethodData method) {
+        convertParametersToMemory();
+        invokeMethodHandle(method);
+        emitReturn();
+    }
+
+    private void generateMethodBody(@NotNull MethodData method) {
         createArenaAndStore();
-        tryStart = generatorAdapter.mark();
-//        loadAndStoreMethodHandle(method);
+        Label tryStart = generatorAdapter.mark();
         convertParametersToMemory();
         invokeMethodHandle(method);
         revertMemoryToParameters();
@@ -96,12 +109,11 @@ public class MethodsBytecodeGenerator implements Opcodes {
         Label tryEnd = generatorAdapter.mark();
         closeArena();
         emitReturn();
-        handleExceptionBlock(method, tryEnd);
+        handleExceptionBlock(method, tryStart, tryEnd);
     }
 
     private void prepareTypesAndLocals(@NotNull MethodData method) {
-        Type[] argumentTypes = Type.getArgumentTypes(method.descriptor());
-        handleParamCount = argumentTypes.length - 1;
+        handleParamCount = Type.getArgumentTypes(method.descriptor()).length - 1;
 
         MethodType handleMethodType = method.handleDescriptor().toMethodType();
         parameterCarrierTypes = new ArrayList<>(handleParamCount);
@@ -128,23 +140,24 @@ public class MethodsBytecodeGenerator implements Opcodes {
     private void convertParametersToMemory() {
         for (int i = 0; i < handleParamCount; i++) {
             int argIndex = i + 1;
-            generatorAdapter.loadLocal(arenaLocal);
-            generatorAdapter.loadArg(argIndex);
             Type carrierType = parameterCarrierTypes.get(i);
-            if (carrierType.getSort() != Type.OBJECT && carrierType.getSort() != Type.ARRAY) {
+
+            if (isObjectOrArray(carrierType)) {
+                generatorAdapter.loadLocal(arenaLocal);
+                generatorAdapter.loadArg(argIndex);
+
                 generatorAdapter.box(carrierType);
-            }
-            generatorAdapter.invokeStatic(INTERNAL_MEM_UTILS_TYPE, new Method(TO_MEMORY_METHOD_NAME, TO_MEMORY_METHOD_DESC));
-            if (carrierType.getSort() == Type.OBJECT || carrierType.getSort() == Type.ARRAY) {
-                generatorAdapter.checkCast(carrierType);
-            } else {
+                generatorAdapter.invokeStatic(INTERNAL_MEM_UTILS_TYPE, new Method(TO_MEMORY_METHOD_NAME, TO_MEMORY_METHOD_DESC));
                 generatorAdapter.unbox(carrierType);
+            } else {
+                generatorAdapter.loadArg(argIndex);
             }
+
             generatorAdapter.storeLocal(memoryLocals[i]);
         }
     }
 
-    private void invokeMethodHandle(MethodData method) {
+    private void invokeMethodHandle(@NotNull MethodData method) {
         generatorAdapter.loadThis();
         generatorAdapter.getStatic(Type.getObjectType(implementationInternalName), AnNamingUtils.getMethodHandleFieldName(method.name()), METHOD_HANDLE_TYPE);
 
@@ -161,9 +174,11 @@ public class MethodsBytecodeGenerator implements Opcodes {
         generatorAdapter.invokeVirtual(METHOD_HANDLE_TYPE, new Method("invokeExact",
                 method.getHandleDescriptor(withAllocator)
         ));
-        if (hasReturn) {
-            generatorAdapter.storeLocal(resultLocal);
-        }
+        if (hasReturn) generatorAdapter.storeLocal(allParamsArePrimitive ? returnLocal : resultLocal);
+    }
+
+    private boolean isObjectOrArray(@NotNull Type type) {
+        return type.getSort() == Type.OBJECT || type.getSort() == Type.ARRAY;
     }
 
     private boolean isAllocatorNeeded(@NotNull MethodData method) {
@@ -175,25 +190,21 @@ public class MethodsBytecodeGenerator implements Opcodes {
         for (int i = 0; i < handleParamCount; i++) {
             int argIndex = i + 1;
             Type carrierType = parameterCarrierTypes.get(i);
+            if (!isObjectOrArray(carrierType)) continue;
+
             generatorAdapter.loadArg(argIndex);
-            if (carrierType.getSort() != Type.OBJECT && carrierType.getSort() != Type.ARRAY) {
-                generatorAdapter.box(carrierType);
-            }
             generatorAdapter.loadLocal(memoryLocals[i]);
-            if (carrierType.getSort() != Type.OBJECT && carrierType.getSort() != Type.ARRAY) {
-                generatorAdapter.box(carrierType);
-            }
             generatorAdapter.invokeStatic(INTERNAL_MEM_UTILS_TYPE, new Method(FROM_MEMORY_METHOD_NAME, FROM_MEMORY_METHOD_DESC));
         }
     }
 
     private void processResultIfPresent() {
-        if (!hasReturn) {
-            return;
-        }
+        if (!hasReturn) return;
+
         generatorAdapter.loadLocal(resultLocal);
         if (returnCarrierType.getSort() != Type.OBJECT && returnCarrierType.getSort() != Type.ARRAY) {
-            generatorAdapter.box(returnCarrierType);
+            generatorAdapter.storeLocal(returnLocal);
+            return;
         }
         generatorAdapter.loadArg(0);
         generatorAdapter.invokeStatic(INTERNAL_MEM_UTILS_TYPE, new Method(RESULT_FROM_MEMORY_METHOD_NAME, RESULT_FROM_MEMORY_METHOD_DESC));
@@ -242,7 +253,7 @@ public class MethodsBytecodeGenerator implements Opcodes {
         generatorAdapter.invokeVirtual(Type.getType(wrapperClass), new Method(methodName, descriptor));
     }
 
-    private void handleExceptionBlock(@NotNull MethodData method, Label tryEnd) {
+    private void handleExceptionBlock(@NotNull MethodData method, Label tryStart, Label tryEnd) {
         Label catchStart = new Label();
         generatorAdapter.visitTryCatchBlock(tryStart, tryEnd, catchStart, Type.getInternalName(Throwable.class));
         generatorAdapter.mark(catchStart);

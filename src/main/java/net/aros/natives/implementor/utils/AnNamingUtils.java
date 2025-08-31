@@ -8,8 +8,8 @@ import org.objectweb.asm.Type;
 @SuppressWarnings("preview")
 public class AnNamingUtils {
     @Contract(pure = true)
-    public static @NotNull String getMethodHandleFieldName(String methodName) {
-        return STR."\{methodName}Handle";
+    public static @NotNull String getMethodHandleFieldName(@NotNull String methodName) {
+        return STR."\{methodName.toUpperCase()}_HANDLE";
     }
 
     public static String getImplClassName(@NotNull Class<?> clazz) {

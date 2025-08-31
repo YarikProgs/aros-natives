@@ -1,5 +1,6 @@
 package net.aros.natives.data;
 
+import net.aros.natives.data.codecs.primitive.*;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
@@ -14,13 +15,13 @@ public final class MemCodecs {
     private MemCodecs() {
     }
 
-    public static final MemCodec<Byte> BYTE = MemCodec.of(byte.class, ValueLayout.JAVA_BYTE);
-    public static final MemCodec<Character> CHAR = MemCodec.of(char.class, ValueLayout.JAVA_CHAR);
-    public static final MemCodec<Short> SHORT = MemCodec.of(short.class, ValueLayout.JAVA_SHORT);
-    public static final MemCodec<Integer> INT = MemCodec.of(int.class, ValueLayout.JAVA_INT);
-    public static final MemCodec<Long> LONG = MemCodec.of(long.class, ValueLayout.JAVA_LONG);
-    public static final MemCodec<Float> FLOAT = MemCodec.of(float.class, ValueLayout.JAVA_FLOAT);
-    public static final MemCodec<Double> DOUBLE = MemCodec.of(double.class, ValueLayout.JAVA_DOUBLE);
+    public static final MemPrimitiveByteCodec BYTE = new MemPrimitiveByteCodec();
+    public static final MemPrimitiveCharCodec CHAR = new MemPrimitiveCharCodec();
+    public static final MemPrimitiveShortCodec SHORT = new MemPrimitiveShortCodec();
+    public static final MemPrimitiveIntCodec INT = new MemPrimitiveIntCodec();
+    public static final MemPrimitiveLongCodec LONG = new MemPrimitiveLongCodec();
+    public static final MemPrimitiveFloatCodec FLOAT = new MemPrimitiveFloatCodec();
+    public static final MemPrimitiveDoubleCodec DOUBLE = new MemPrimitiveDoubleCodec();
     public static final MemCodec<Boolean> BOOLEAN = MemCodec.of(boolean.class, ValueLayout.JAVA_BOOLEAN);
     public static final MemCodec<MemorySegment> ADDRESS = MemCodec.of(MemorySegment.class, ValueLayout.ADDRESS);
 

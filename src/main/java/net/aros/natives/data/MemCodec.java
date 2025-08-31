@@ -1,5 +1,9 @@
 package net.aros.natives.data;
 
+import net.aros.natives.data.codecs.BaseCodec;
+import net.aros.natives.data.codecs.PointerCodec;
+import net.aros.natives.data.codecs.array.ArrayCodec;
+import net.aros.natives.data.codecs.struct.*;
 import net.aros.natives.data.util.*;
 import net.aros.natives.util.AnUtils;
 import org.jetbrains.annotations.Contract;
@@ -33,32 +37,7 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
 
     @Contract(value = "_, _, _, _ -> new", pure = true)
     static <T> @NotNull MemCodec<T> of(Class<?> type, MemEncoder<T> encoder, MemDecoder<T> decoder, MemoryLayout layout) {
-        return new MemCodec<>() {
-            @Override
-            public T decode(MemorySegment segment, long offset) {
-                return decoder.decode(segment, offset);
-            }
-
-            @Override
-            public void encode(Arena arena, MemorySegment segment, long offset, T element) {
-                encoder.encode(arena, segment, offset, element);
-            }
-
-            @Override
-            public long byteSize() {
-                return layout.byteSize();
-            }
-
-            @Override
-            public MemoryLayout getLayout() {
-                return layout;
-            }
-
-            @Override
-            public Class<?> getNativeArgumentClass() {
-                return type;
-            }
-        };
+        return new BaseCodec<>(type, encoder, decoder, layout);
     }
 
     default <O> MemCodec<O> map(Function<? super T, ? extends O> to, Function<? super O, ? extends T> from) {
@@ -91,332 +70,65 @@ public interface MemCodec<T> extends MemEncoder<T>, MemDecoder<T> {
     }
 
     default MemCodec<T> pointer() {
-        long size = byteSize();
-        return new MemCodec<>() {
-            @Override
-            public long byteSize() {
-                return ValueLayout.ADDRESS.byteSize();
-            }
-
-            @Override
-            public MemoryLayout getLayout() {
-                return ValueLayout.ADDRESS;
-            }
-
-            @Override
-            public T decode(MemorySegment segment, long offset) {
-                MemorySegment value = MemCodecs.ADDRESS.decode(segment, offset);
-                return value == MemorySegment.NULL ? null : MemCodec.this.decodeStart(value.reinterpret(size));
-            }
-
-            @Override
-            public void encode(Arena arena, MemorySegment segment, long offset, T element) {
-                MemorySegment value = element == null ? MemorySegment.NULL : MemCodec.this.allocateAndEncode(arena, element);
-                MemCodecs.ADDRESS.encode(arena, segment, offset, value);
-            }
-
-            @Override
-            public Class<?> getNativeArgumentClass() {
-                return AnNativeValue.class;
-            }
-        };
+        return new PointerCodec<>(this);
     }
 
     default @NotNull MemCodec<T[]> array(IntFunction<T[]> arrayFactory, int length) {
         if (length < 0) throw new IllegalArgumentException("Length must be non-negative");
-        long size = byteSize();
-        return new MemCodec<>() {
-            @Override
-            public T[] decode(MemorySegment segment, long offset) {
-                T[] array = arrayFactory.apply(length);
-                for (int i = 0; i < length; i++) {
-                    array[i] = MemCodec.this.decode(segment, offset + size * i);
-                }
-                return array;
-            }
-
-            @Override
-            public void encode(Arena arena, MemorySegment segment, long offset, T[] element) {
-                if (element == null || element.length != length) {
-                    throw new IllegalArgumentException("Array must be non-null and with length of %d".formatted(length));
-                }
-                for (int i = 0; i < length; i++) {
-                    MemCodec.this.encode(arena, segment, offset + size * i, element[i]);
-                }
-            }
-
-            @Override
-            public long byteSize() {
-                return length * size;
-            }
-
-            @Override
-            public MemoryLayout getLayout() {
-                return MemoryLayout.sequenceLayout(length, MemCodec.this.getLayout());
-            }
-
-            @Override
-            public Class<?> getNativeArgumentClass() {
-                return AnNativeValue.class;
-            }
-        };
+        return new ArrayCodec<>(this, arrayFactory, length);
     }
 
     @Contract(value = "_, _, _ -> new", pure = true)
-    static <C, T1> @NotNull MemCodec<C> tuple(
-            MemCodec<T1> codec1, Function<C, T1> from1,
-            Function<T1, C> to
-    ) {
-        return new MemCodec<>() {
-            @Override
-            public C decode(MemorySegment segment, long startOffset) {
-                T1 r1 = codec1.decode(segment, startOffset);
-                return to.apply(r1);
-            }
-
-            @Override
-            public void encode(Arena arena, MemorySegment segment, long startOffset, C value) {
-                codec1.encode(arena, segment, startOffset, from1.apply(value));
-            }
-
-            @Override
-            public long byteSize() {
-                return codec1.byteSize();
-            }
-
-            @Override
-            public MemoryLayout getLayout() {
-                return MemoryLayout.structLayout(codec1.getLayout());
-            }
-
-            @Override
-            public Class<?> getNativeArgumentClass() {
-                return AnNativeValue.class;
-            }
-        };
+    static <C, T1> @NotNull MemCodec<C> tuple(MemCodec<T1> codec1, Function<C, T1> from1,
+                                              Function<T1, C> to) {
+        return new StructCodec1<>(codec1, from1, to);
     }
 
     @Contract(value = "_, _, _, _, _ -> new", pure = true)
-    static <C, T1, T2> @NotNull MemCodec<C> tuple(
-            MemCodec<T1> codec1, Function<C, T1> from1,
-            MemCodec<T2> codec2, Function<C, T2> from2,
-            BiFunction<T1, T2, C> to
-    ) {
-        return new MemCodec<>() {
-            @Override
-            public C decode(MemorySegment segment, long startOffset) {
-                T1 r1 = codec1.decode(segment, startOffset);
-                T2 r2 = codec2.decode(segment, startOffset + codec1.byteSize());
-                return to.apply(r1, r2);
-            }
-
-            @Override
-            public void encode(Arena arena, MemorySegment segment, long startOffset, C value) {
-                codec1.encode(arena, segment, startOffset, from1.apply(value));
-                codec2.encode(arena, segment, startOffset + codec1.byteSize(), from2.apply(value));
-            }
-
-            @Override
-            public long byteSize() {
-                return codec1.byteSize() + codec2.byteSize();
-            }
-
-            @Override
-            public MemoryLayout getLayout() {
-                return MemoryLayout.structLayout(codec1.getLayout(), codec2.getLayout());
-            }
-
-            @Override
-            public Class<?> getNativeArgumentClass() {
-                return AnNativeValue.class;
-            }
-        };
+    static <C, T1, T2> @NotNull MemCodec<C> tuple(MemCodec<T1> codec1, Function<C, T1> from1,
+                                                  MemCodec<T2> codec2, Function<C, T2> from2,
+                                                  BiFunction<T1, T2, C> to) {
+        return new StructCodec2<>(codec1, from1, codec2, from2, to);
     }
 
     @Contract(value = "_, _, _, _, _, _, _ -> new", pure = true)
-    static <C, T1, T2, T3> @NotNull MemCodec<C> tuple(
-            MemCodec<T1> codec1, Function<C, T1> from1,
-            MemCodec<T2> codec2, Function<C, T2> from2,
-            MemCodec<T3> codec3, Function<C, T3> from3,
-            Function3<T1, T2, T3, C> to
-    ) {
-        return new MemCodec<>() {
-            @Override
-            public C decode(MemorySegment segment, long startOffset) {
-                long offset = startOffset;
-                T1 r1 = codec1.decode(segment, offset);
-                T2 r2 = codec2.decode(segment, offset += codec1.byteSize());
-                T3 r3 = codec3.decode(segment, offset + codec2.byteSize());
-                return to.apply(r1, r2, r3);
-            }
-
-            @Override
-            public void encode(Arena arena, MemorySegment segment, long startOffset, C value) {
-                long offset = startOffset;
-                codec1.encode(arena, segment, offset, from1.apply(value));
-                codec2.encode(arena, segment, offset += codec1.byteSize(), from2.apply(value));
-                codec3.encode(arena, segment, offset + codec2.byteSize(), from3.apply(value));
-            }
-
-            @Override
-            public long byteSize() {
-                return codec1.byteSize() + codec2.byteSize() + codec3.byteSize();
-            }
-
-            @Override
-            public MemoryLayout getLayout() {
-                return MemoryLayout.structLayout(codec1.getLayout(), codec2.getLayout(), codec3.getLayout());
-            }
-
-            @Override
-            public Class<?> getNativeArgumentClass() {
-                return AnNativeValue.class;
-            }
-        };
+    static <C, T1, T2, T3> @NotNull MemCodec<C> tuple(MemCodec<T1> codec1, Function<C, T1> from1,
+                                                      MemCodec<T2> codec2, Function<C, T2> from2,
+                                                      MemCodec<T3> codec3, Function<C, T3> from3,
+                                                      Function3<T1, T2, T3, C> to) {
+        return new StructCodec3<>(codec1, from1, codec2, from2, codec3, from3, to);
     }
 
     @Contract(value = "_, _, _, _, _, _, _, _, _ -> new", pure = true)
-    static <C, T1, T2, T3, T4> @NotNull MemCodec<C> tuple(
-            MemCodec<T1> codec1, Function<C, T1> from1,
-            MemCodec<T2> codec2, Function<C, T2> from2,
-            MemCodec<T3> codec3, Function<C, T3> from3,
-            MemCodec<T4> codec4, Function<C, T4> from4,
-            Function4<T1, T2, T3, T4, C> to
-    ) {
-        return new MemCodec<>() {
-            @Override
-            public C decode(MemorySegment segment, long startOffset) {
-                long offset = startOffset;
-                T1 r1 = codec1.decode(segment, offset);
-                T2 r2 = codec2.decode(segment, offset += codec1.byteSize());
-                T3 r3 = codec3.decode(segment, offset += codec2.byteSize());
-                T4 r4 = codec4.decode(segment, offset + codec3.byteSize());
-                return to.apply(r1, r2, r3, r4);
-            }
-
-            @Override
-            public void encode(Arena arena, MemorySegment segment, long startOffset, C value) {
-                long offset = startOffset;
-                codec1.encode(arena, segment, offset, from1.apply(value));
-                codec2.encode(arena, segment, offset += codec1.byteSize(), from2.apply(value));
-                codec3.encode(arena, segment, offset += codec2.byteSize(), from3.apply(value));
-                codec4.encode(arena, segment, offset + codec3.byteSize(), from4.apply(value));
-            }
-
-            @Override
-            public long byteSize() {
-                return codec1.byteSize() + codec2.byteSize() + codec3.byteSize() + codec4.byteSize();
-            }
-
-            @Override
-            public MemoryLayout getLayout() {
-                return MemoryLayout.structLayout(codec1.getLayout(), codec2.getLayout(), codec3.getLayout(), codec4.getLayout());
-            }
-
-            @Override
-            public Class<?> getNativeArgumentClass() {
-                return AnNativeValue.class;
-            }
-        };
+    static <C, T1, T2, T3, T4> @NotNull MemCodec<C> tuple(MemCodec<T1> codec1, Function<C, T1> from1,
+                                                          MemCodec<T2> codec2, Function<C, T2> from2,
+                                                          MemCodec<T3> codec3, Function<C, T3> from3,
+                                                          MemCodec<T4> codec4, Function<C, T4> from4,
+                                                          Function4<T1, T2, T3, T4, C> to) {
+        return new StructCodec4<>(codec1, from1, codec2, from2, codec3, from3, codec4, from4, to);
     }
 
     @Contract(value = "_, _, _, _, _, _, _, _, _, _, _ -> new", pure = true)
-    static <C, T1, T2, T3, T4, T5> @NotNull MemCodec<C> tuple(
-            MemCodec<T1> codec1, Function<C, T1> from1,
-            MemCodec<T2> codec2, Function<C, T2> from2,
-            MemCodec<T3> codec3, Function<C, T3> from3,
-            MemCodec<T4> codec4, Function<C, T4> from4,
-            MemCodec<T5> codec5, Function<C, T5> from5,
-            Function5<T1, T2, T3, T4, T5, C> to
+    static <C, T1, T2, T3, T4, T5> @NotNull MemCodec<C> tuple(MemCodec<T1> codec1, Function<C, T1> from1,
+                                                              MemCodec<T2> codec2, Function<C, T2> from2,
+                                                              MemCodec<T3> codec3, Function<C, T3> from3,
+                                                              MemCodec<T4> codec4, Function<C, T4> from4,
+                                                              MemCodec<T5> codec5, Function<C, T5> from5,
+                                                              Function5<T1, T2, T3, T4, T5, C> to
     ) {
-        return new MemCodec<>() {
-            @Override
-            public C decode(MemorySegment segment, long startOffset) {
-                long offset = startOffset;
-                T1 r1 = codec1.decode(segment, offset);
-                T2 r2 = codec2.decode(segment, offset += codec1.byteSize());
-                T3 r3 = codec3.decode(segment, offset += codec2.byteSize());
-                T4 r4 = codec4.decode(segment, offset += codec3.byteSize());
-                T5 r5 = codec5.decode(segment, offset + codec4.byteSize());
-                return to.apply(r1, r2, r3, r4, r5);
-            }
-
-            @Override
-            public void encode(Arena arena, MemorySegment segment, long startOffset, C value) {
-                long offset = startOffset;
-                codec1.encode(arena, segment, offset, from1.apply(value));
-                codec2.encode(arena, segment, offset += codec1.byteSize(), from2.apply(value));
-                codec3.encode(arena, segment, offset += codec2.byteSize(), from3.apply(value));
-                codec4.encode(arena, segment, offset += codec3.byteSize(), from4.apply(value));
-                codec5.encode(arena, segment, offset + codec4.byteSize(), from5.apply(value));
-            }
-
-            @Override
-            public long byteSize() {
-                return codec1.byteSize() + codec2.byteSize() + codec3.byteSize() + codec4.byteSize() + codec5.byteSize();
-            }
-
-            @Override
-            public MemoryLayout getLayout() {
-                return MemoryLayout.structLayout(codec1.getLayout(), codec2.getLayout(), codec3.getLayout(), codec4.getLayout(), codec5.getLayout());
-            }
-
-            @Override
-            public Class<?> getNativeArgumentClass() {
-                return AnNativeValue.class;
-            }
-        };
+        return new StructCodec5<>(codec1, from1, codec2, from2, codec3, from3, codec4, from4, codec5, from5, to);
     }
 
     @Contract(value = "_, _, _, _, _, _, _, _, _, _, _, _, _ -> new", pure = true)
-    static <C, T1, T2, T3, T4, T5, T6> @NotNull MemCodec<C> tuple(
-            MemCodec<T1> codec1, Function<C, T1> from1,
-            MemCodec<T2> codec2, Function<C, T2> from2,
-            MemCodec<T3> codec3, Function<C, T3> from3,
-            MemCodec<T4> codec4, Function<C, T4> from4,
-            MemCodec<T5> codec5, Function<C, T5> from5,
-            MemCodec<T6> codec6, Function<C, T6> from6,
-            Function6<T1, T2, T3, T4, T5, T6, C> to
+    static <C, T1, T2, T3, T4, T5, T6> @NotNull MemCodec<C> tuple(MemCodec<T1> codec1, Function<C, T1> from1,
+                                                                  MemCodec<T2> codec2, Function<C, T2> from2,
+                                                                  MemCodec<T3> codec3, Function<C, T3> from3,
+                                                                  MemCodec<T4> codec4, Function<C, T4> from4,
+                                                                  MemCodec<T5> codec5, Function<C, T5> from5,
+                                                                  MemCodec<T6> codec6, Function<C, T6> from6,
+                                                                  Function6<T1, T2, T3, T4, T5, T6, C> to
     ) {
-        return new MemCodec<>() {
-            @Override
-            public C decode(MemorySegment segment, long startOffset) {
-                long offset = startOffset;
-                T1 r1 = codec1.decode(segment, offset);
-                T2 r2 = codec2.decode(segment, offset += codec1.byteSize());
-                T3 r3 = codec3.decode(segment, offset += codec2.byteSize());
-                T4 r4 = codec4.decode(segment, offset += codec3.byteSize());
-                T5 r5 = codec5.decode(segment, offset += codec4.byteSize());
-                T6 r6 = codec6.decode(segment, offset + codec5.byteSize());
-                return to.apply(r1, r2, r3, r4, r5, r6);
-            }
-
-            @Override
-            public void encode(Arena arena, MemorySegment segment, long startOffset, C value) {
-                long offset = startOffset;
-                codec1.encode(arena, segment, offset, from1.apply(value));
-                codec2.encode(arena, segment, offset += codec1.byteSize(), from2.apply(value));
-                codec3.encode(arena, segment, offset += codec2.byteSize(), from3.apply(value));
-                codec4.encode(arena, segment, offset += codec3.byteSize(), from4.apply(value));
-                codec5.encode(arena, segment, offset += codec4.byteSize(), from5.apply(value));
-                codec6.encode(arena, segment, offset + codec5.byteSize(), from6.apply(value));
-            }
-
-            @Override
-            public long byteSize() {
-                return codec1.byteSize() + codec2.byteSize() + codec3.byteSize() + codec4.byteSize() + codec5.byteSize() + codec6.byteSize();
-            }
-
-            @Override
-            public MemoryLayout getLayout() {
-                return MemoryLayout.structLayout(codec1.getLayout(), codec2.getLayout(), codec3.getLayout(), codec4.getLayout(), codec5.getLayout(), codec6.getLayout());
-            }
-
-            @Override
-            public Class<?> getNativeArgumentClass() {
-                return AnNativeValue.class;
-            }
-        };
+        return new StructCodec6<>(codec1, from1, codec2, from2, codec3, from3, codec4, from4, codec5, from5, codec6, from6, to);
     }
 
     default MemorySegment allocateAndEncode(@NotNull Arena arena, T element) {
