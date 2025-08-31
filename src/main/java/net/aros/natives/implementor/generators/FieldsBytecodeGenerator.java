@@ -28,7 +28,7 @@ public class FieldsBytecodeGenerator implements Opcodes {
 
     private void addHandleField(@NotNull MethodData method) {
         cw.visitField(
-                ACC_PRIVATE | ACC_FINAL,
+                ACC_PRIVATE | ACC_STATIC | ACC_FINAL,
                 AnNamingUtils.getMethodHandleFieldName(method.name()),
                 Type.getDescriptor(MethodHandle.class), null, null
         ).visitEnd();

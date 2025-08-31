@@ -48,7 +48,6 @@ public class MethodsBytecodeGenerator implements Opcodes {
     private Label tryStart;
     private int arenaLocal;
     private int[] memoryLocals;
-    private int methodHandleLocal;
     private int resultLocal;
     private int returnLocal;
     private int handleParamCount;
@@ -89,7 +88,7 @@ public class MethodsBytecodeGenerator implements Opcodes {
         prepareTypesAndLocals(method);
         createArenaAndStore();
         tryStart = generatorAdapter.mark();
-        loadAndStoreMethodHandle(method);
+//        loadAndStoreMethodHandle(method);
         convertParametersToMemory();
         invokeMethodHandle(method);
         revertMemoryToParameters();
@@ -117,7 +116,6 @@ public class MethodsBytecodeGenerator implements Opcodes {
         for (int i = 0; i < handleParamCount; i++) {
             memoryLocals[i] = generatorAdapter.newLocal(parameterCarrierTypes.get(i));
         }
-        methodHandleLocal = generatorAdapter.newLocal(METHOD_HANDLE_TYPE);
         resultLocal = hasReturn ? generatorAdapter.newLocal(returnCarrierType) : -1;
         returnLocal = hasReturn ? generatorAdapter.newLocal(methodReturnType) : -1;
     }
@@ -127,19 +125,16 @@ public class MethodsBytecodeGenerator implements Opcodes {
         generatorAdapter.storeLocal(arenaLocal);
     }
 
-    private void loadAndStoreMethodHandle(@NotNull MethodData method) {
-        generatorAdapter.loadThis();
-        generatorAdapter.getField(Type.getObjectType(implementationInternalName), AnNamingUtils.getMethodHandleFieldName(method.name()), METHOD_HANDLE_TYPE);
-        generatorAdapter.storeLocal(methodHandleLocal);
-    }
-
     private void convertParametersToMemory() {
         for (int i = 0; i < handleParamCount; i++) {
             int argIndex = i + 1;
             generatorAdapter.loadLocal(arenaLocal);
             generatorAdapter.loadArg(argIndex);
-            generatorAdapter.invokeStatic(INTERNAL_MEM_UTILS_TYPE, new Method(TO_MEMORY_METHOD_NAME, TO_MEMORY_METHOD_DESC));
             Type carrierType = parameterCarrierTypes.get(i);
+            if (carrierType.getSort() != Type.OBJECT && carrierType.getSort() != Type.ARRAY) {
+                generatorAdapter.box(carrierType);
+            }
+            generatorAdapter.invokeStatic(INTERNAL_MEM_UTILS_TYPE, new Method(TO_MEMORY_METHOD_NAME, TO_MEMORY_METHOD_DESC));
             if (carrierType.getSort() == Type.OBJECT || carrierType.getSort() == Type.ARRAY) {
                 generatorAdapter.checkCast(carrierType);
             } else {
@@ -150,7 +145,8 @@ public class MethodsBytecodeGenerator implements Opcodes {
     }
 
     private void invokeMethodHandle(MethodData method) {
-        generatorAdapter.loadLocal(methodHandleLocal);
+        generatorAdapter.loadThis();
+        generatorAdapter.getStatic(Type.getObjectType(implementationInternalName), AnNamingUtils.getMethodHandleFieldName(method.name()), METHOD_HANDLE_TYPE);
 
         boolean withAllocator = isAllocatorNeeded(method);
         if (withAllocator) {
@@ -178,9 +174,12 @@ public class MethodsBytecodeGenerator implements Opcodes {
     private void revertMemoryToParameters() {
         for (int i = 0; i < handleParamCount; i++) {
             int argIndex = i + 1;
-            generatorAdapter.loadArg(argIndex);
-            generatorAdapter.loadLocal(memoryLocals[i]);
             Type carrierType = parameterCarrierTypes.get(i);
+            generatorAdapter.loadArg(argIndex);
+            if (carrierType.getSort() != Type.OBJECT && carrierType.getSort() != Type.ARRAY) {
+                generatorAdapter.box(carrierType);
+            }
+            generatorAdapter.loadLocal(memoryLocals[i]);
             if (carrierType.getSort() != Type.OBJECT && carrierType.getSort() != Type.ARRAY) {
                 generatorAdapter.box(carrierType);
             }
@@ -211,11 +210,7 @@ public class MethodsBytecodeGenerator implements Opcodes {
 
     private void closeArena() {
         generatorAdapter.loadLocal(arenaLocal);
-        Label skip = new Label();
-        generatorAdapter.ifNull(skip);
-        generatorAdapter.loadLocal(arenaLocal);
         generatorAdapter.invokeInterface(ARENA_TYPE, new Method("close", "()V"));
-        generatorAdapter.mark(skip);
     }
 
     private void handleReturnValueWithoutReturn(Type returnType) {

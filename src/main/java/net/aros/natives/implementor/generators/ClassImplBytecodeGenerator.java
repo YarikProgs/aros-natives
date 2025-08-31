@@ -2,9 +2,7 @@ package net.aros.natives.implementor.generators;
 
 import net.aros.natives.implementor.utils.AnNamingUtils;
 import net.aros.natives.implementor.utils.MethodData;
-import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.Type;
+import org.objectweb.asm.*;
 
 import java.lang.foreign.FunctionDescriptor;
 import java.util.List;
@@ -15,7 +13,6 @@ import static net.aros.natives.implementor.utils.AnNamingUtils.getMethodDescript
 @SuppressWarnings("preview")
 public class ClassImplBytecodeGenerator implements Opcodes {
     public static final String LIB_FIELD_NAME = "LIB";
-    public static final String DESC_INIT = getMethodDescriptor(void.class, FunctionDescriptor[].class);
 
     private final Class<?> interfaceClass;
     private final List<MethodData> methods;
@@ -43,10 +40,25 @@ public class ClassImplBytecodeGenerator implements Opcodes {
     private void writeContents(String internalName) {
         List.<Runnable>of(
                 new FieldsBytecodeGenerator(classWriter, methods)::addHandleFields,
-                new StaticInitializerBytecodeGenerator(classWriter, interfaceClass.getName().replace('.', '_'), internalName)::addStaticInitializer,
-                new InitializerBytecodeGenerator(classWriter, internalName, methods)::addInitializer,
+                new StaticInitializerBytecodeGenerator(classWriter, interfaceClass.getName().replace('.', '_'), internalName, methods)::addStaticInitializer,
+                () -> addEmptyConstructor(internalName),
                 new MethodsBytecodeGenerator(classWriter, internalName, interfaceClass, methods)::addMethodsImplementation
         ).forEach(Runnable::run);
+    }
+
+    private void addEmptyConstructor(String implInternalName) {
+        Label startLabel, endLabel;
+        MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+        methodVisitor.visitCode();
+        methodVisitor.visitLabel(startLabel = new Label());
+        methodVisitor.visitVarInsn(ALOAD, 0);
+        methodVisitor.visitMethodInsn(INVOKESPECIAL, Type.getInternalName(Object.class), "<init>", "()V", false);
+
+        methodVisitor.visitInsn(RETURN);
+        methodVisitor.visitLabel(endLabel = new Label());
+        methodVisitor.visitLocalVariable("this", STR."L\{implInternalName};", null, startLabel, endLabel, 0);
+        methodVisitor.visitMaxs(0, 0);
+        methodVisitor.visitEnd();
     }
 
     private byte[] endWriting() {
