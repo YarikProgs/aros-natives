@@ -1,5 +1,6 @@
 package net.aros.natives.implementor.utils;
 
+import net.aros.natives.data.AnNativeValue;
 import net.aros.natives.data.MemCodec;
 import net.aros.natives.util.AnUtils;
 import org.jetbrains.annotations.NotNull;
@@ -9,6 +10,7 @@ import org.objectweb.asm.Type;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.MemoryLayout;
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -47,17 +49,34 @@ public class NativeMethodBuilder<T> {
 
         Method method;
         try {
-            method = ofClass.getMethod(javaMethodName, getParamTypesOfCodecs(paramCodecs));
+            method = ofClass.getMethod(javaMethodName, getParamTypesOfCodecs(paramCodecs, returnCodec));
         } catch (NoSuchMethodException e) {
             throw new RuntimeException("Given method was not found", e);
         }
+        validateMethod(method);
 
         return new MethodData(nativeMethodName, Type.getMethodDescriptor(method), makeHandleDescriptor(returnCodec, paramCodecs), method.getReturnType());
     }
 
-    private static Class<?>[] getParamTypesOfCodecs(MemCodec<?>[] paramCodecs) {
+    @SuppressWarnings("preview")
+    private static void validateMethod(Method method) {
+        if (method.getReturnType().isPrimitive()) {
+            if (method.getParameterCount() > 0 && method.getParameterTypes()[0] == MemCodec.class)
+                throw new IllegalStateException("❗ Your method is returning primitive, remove MemCodec from parameters");
+        } else {
+            if (method.getParameterCount() <= 0 || method.getParameterTypes()[0] != MemCodec.class)
+                throw new IllegalStateException("❗ Your method is returning non-primitive, add MemCodec for return type as first parameter");
+        }
+        for (Parameter parameter : method.getParameters()) {
+            if (parameter.getType().isPrimitive() || parameter.getType() == AnNativeValue.class) continue;
+            String anNativeValue = AnNativeValue.class.getName();
+            throw new IllegalStateException(STR."❗ Illegal parameter `\{parameter.getType().getName()} \{parameter.getName()}`: can't have non-primitive nor \{anNativeValue} as parameter. Replace with primitive or wrap via \{anNativeValue}");
+        }
+    }
+
+    private static Class<?>[] getParamTypesOfCodecs(MemCodec<?>[] paramCodecs, MemCodec<?> retCodec) {
         return AnUtils.make(new ArrayList<Class<?>>(), list -> {
-            list.add(MemCodec.class);
+            if (retCodec != null && !retCodec.getNativeArgumentClass().isPrimitive()) list.add(MemCodec.class);
             list.addAll(Arrays.stream(paramCodecs).map(MemCodec::getNativeArgumentClass).toList());
         }).toArray(Class<?>[]::new);
     }

@@ -41,3 +41,6 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+src/main/java/net/aros/testing/
+src/main/resources/cLibs/

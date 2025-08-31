@@ -51,6 +51,7 @@ public class MethodsBytecodeGenerator implements Opcodes {
     private int returnLocal;
     private int handleParamCount;
     private boolean allParamsArePrimitive;
+    private boolean shouldHaveCodecAtFirst;
 
 
     MethodsBytecodeGenerator(@NotNull ClassWriter classWriter, String implementationInternalName, Class<?> interfaceClass, List<MethodData> methods) {
@@ -113,16 +114,16 @@ public class MethodsBytecodeGenerator implements Opcodes {
     }
 
     private void prepareTypesAndLocals(@NotNull MethodData method) {
-        handleParamCount = Type.getArgumentTypes(method.descriptor()).length - 1;
-
+        hasReturn = method.handleDescriptor().returnLayout().isPresent();
         MethodType handleMethodType = method.handleDescriptor().toMethodType();
+        returnCarrierType = hasReturn ? getMappedTypeFor(handleMethodType.returnType()) : Type.VOID_TYPE;
+        shouldHaveCodecAtFirst = isObjectOrArray(returnCarrierType);
+        handleParamCount = Type.getArgumentTypes(method.descriptor()).length - (shouldHaveCodecAtFirst ? 1 : 0);
+
         parameterCarrierTypes = new ArrayList<>(handleParamCount);
         for (int i = 0; i < handleParamCount; i++) {
             parameterCarrierTypes.add(getMappedTypeFor(handleMethodType.parameterType(i)));
         }
-        hasReturn = method.handleDescriptor().returnLayout().isPresent();
-        returnCarrierType = hasReturn ? getMappedTypeFor(handleMethodType.returnType()) : Type.VOID_TYPE;
-
         arenaLocal = generatorAdapter.newLocal(ARENA_TYPE);
         memoryLocals = new int[handleParamCount];
         for (int i = 0; i < handleParamCount; i++) {
@@ -139,7 +140,7 @@ public class MethodsBytecodeGenerator implements Opcodes {
 
     private void convertParametersToMemory() {
         for (int i = 0; i < handleParamCount; i++) {
-            int argIndex = i + 1;
+            int argIndex = i + (shouldHaveCodecAtFirst ? 1 : 0);
             Type carrierType = parameterCarrierTypes.get(i);
 
             if (isObjectOrArray(carrierType)) {
@@ -188,7 +189,7 @@ public class MethodsBytecodeGenerator implements Opcodes {
 
     private void revertMemoryToParameters() {
         for (int i = 0; i < handleParamCount; i++) {
-            int argIndex = i + 1;
+            int argIndex = i + (shouldHaveCodecAtFirst ? 1 : 0);
             Type carrierType = parameterCarrierTypes.get(i);
             if (!isObjectOrArray(carrierType)) continue;
 
@@ -202,7 +203,7 @@ public class MethodsBytecodeGenerator implements Opcodes {
         if (!hasReturn) return;
 
         generatorAdapter.loadLocal(resultLocal);
-        if (returnCarrierType.getSort() != Type.OBJECT && returnCarrierType.getSort() != Type.ARRAY) {
+        if (!shouldHaveCodecAtFirst) {
             generatorAdapter.storeLocal(returnLocal);
             return;
         }
