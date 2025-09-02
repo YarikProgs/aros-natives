@@ -67,8 +67,9 @@ public class NativeMethodBuilder<T> {
             if (method.getParameterCount() <= 0 || method.getParameterTypes()[0] != MemCodec.class)
                 throw new IllegalStateException("❗ Your method is returning non-primitive, add MemCodec for return type as first parameter");
         }
-        for (Parameter parameter : method.getParameters()) {
-            if (parameter.getType().isPrimitive() || parameter.getType() == AnNativeValue.class) continue;
+        for (int i = 0; i < method.getParameterCount(); i++) {
+            Parameter parameter = method.getParameters()[i];
+            if (parameter.getType().isPrimitive() || parameter.getType() == AnNativeValue.class || (i == 0 && parameter.getType() == MemCodec.class)) continue;
             String anNativeValue = AnNativeValue.class.getName();
             throw new IllegalStateException(STR."❗ Illegal parameter `\{parameter.getType().getName()} \{parameter.getName()}`: can't have non-primitive nor \{anNativeValue} as parameter. Replace with primitive or wrap via \{anNativeValue}");
         }

@@ -1,7 +1,8 @@
 package net.aros.natives.implementor.generators;
 
+import net.aros.natives.data.AnNativeValue;
+import net.aros.natives.data.MemCodec;
 import net.aros.natives.implementor.utils.AnNamingUtils;
-import net.aros.natives.implementor.utils.InternalMemoryUtils;
 import net.aros.natives.implementor.utils.MethodData;
 import org.jetbrains.annotations.NotNull;
 import org.objectweb.asm.ClassWriter;
@@ -21,19 +22,17 @@ import java.util.List;
 
 @SuppressWarnings("preview")
 public class MethodsBytecodeGenerator implements Opcodes {
-    private static final String TO_MEMORY_METHOD_NAME = "toMemoryUnsafe";
-    private static final String FROM_MEMORY_METHOD_NAME = "fromMemoryUnsafe";
-    private static final String RESULT_FROM_MEMORY_METHOD_NAME = "resultFromMemUnsafe";
-    private static final String TO_MEMORY_METHOD_DESC = AnNamingUtils.getMethodDescriptor(Object.class, Arena.class, Object.class);
-    private static final String FROM_MEMORY_METHOD_DESC = AnNamingUtils.getMethodDescriptor(void.class, Object.class, Object.class);
-    private static final String RESULT_FROM_MEMORY_METHOD_DESC = AnNamingUtils.getMethodDescriptor(Object.class, Object.class, Object.class);
+    private static final Method ALLOC_ENCODE_METHOD = new Method("allocateAndEncode", AnNamingUtils.getMethodDescriptor(MemorySegment.class, Arena.class));
+    private static final Method DECODE_METHOD = new Method("decode", AnNamingUtils.getMethodDescriptor(void.class, MemorySegment.class));
+    private static final Method DECODE_START_METHOD = new Method("decodeStart", AnNamingUtils.getMethodDescriptor(Object.class, MemorySegment.class));
 
     private static final Type ARENA_TYPE = Type.getType(Arena.class);
-    private static final Type INTERNAL_MEM_UTILS_TYPE = Type.getType(InternalMemoryUtils.class);
     private static final Type METHOD_HANDLE_TYPE = Type.getType(MethodHandle.class);
     private static final Type THROWABLE_TYPE = Type.getType(Throwable.class);
     private static final Type RUNTIME_EXCEPTION_TYPE = Type.getType(RuntimeException.class);
     private static final Type SEGMENT_ALLOCATOR_TYPE = Type.getType(SegmentAllocator.class);
+    private static final Type AN_NATIVE_VALUE_TYPE = Type.getType(AnNativeValue.class);
+    private static final Type MEM_CODEC_TYPE = Type.getType(MemCodec.class);
 
     private final ClassWriter classWriter;
     private final String implementationInternalName;
@@ -43,7 +42,6 @@ public class MethodsBytecodeGenerator implements Opcodes {
     private GeneratorAdapter generatorAdapter;
     private List<Type> parameterCarrierTypes;
     private boolean hasReturn;
-    private Type returnCarrierType;
     private Type methodReturnType;
     private int arenaLocal;
     private int[] memoryLocals;
@@ -95,7 +93,7 @@ public class MethodsBytecodeGenerator implements Opcodes {
     }
 
     private void generateSimpleMethodBody(@NotNull MethodData method) {
-        convertParametersToMemory();
+        mapParameters();
         invokeMethodHandle(method);
         emitReturn();
     }
@@ -103,9 +101,9 @@ public class MethodsBytecodeGenerator implements Opcodes {
     private void generateMethodBody(@NotNull MethodData method) {
         createArenaAndStore();
         Label tryStart = generatorAdapter.mark();
-        convertParametersToMemory();
+        mapParameters();
         invokeMethodHandle(method);
-        revertMemoryToParameters();
+        unmapParameters();
         processResultIfPresent();
         Label tryEnd = generatorAdapter.mark();
         closeArena();
@@ -116,7 +114,7 @@ public class MethodsBytecodeGenerator implements Opcodes {
     private void prepareTypesAndLocals(@NotNull MethodData method) {
         hasReturn = method.handleDescriptor().returnLayout().isPresent();
         MethodType handleMethodType = method.handleDescriptor().toMethodType();
-        returnCarrierType = hasReturn ? getMappedTypeFor(handleMethodType.returnType()) : Type.VOID_TYPE;
+        Type returnCarrierType = hasReturn ? getMappedTypeFor(handleMethodType.returnType()) : Type.VOID_TYPE;
         shouldHaveCodecAtFirst = isObjectOrArray(returnCarrierType);
         handleParamCount = Type.getArgumentTypes(method.descriptor()).length - (shouldHaveCodecAtFirst ? 1 : 0);
 
@@ -138,20 +136,16 @@ public class MethodsBytecodeGenerator implements Opcodes {
         generatorAdapter.storeLocal(arenaLocal);
     }
 
-    private void convertParametersToMemory() {
+    private void mapParameters() {
         for (int i = 0; i < handleParamCount; i++) {
             int argIndex = i + (shouldHaveCodecAtFirst ? 1 : 0);
             Type carrierType = parameterCarrierTypes.get(i);
 
+            generatorAdapter.loadArg(argIndex);
+
             if (isObjectOrArray(carrierType)) {
                 generatorAdapter.loadLocal(arenaLocal);
-                generatorAdapter.loadArg(argIndex);
-
-                generatorAdapter.box(carrierType);
-                generatorAdapter.invokeStatic(INTERNAL_MEM_UTILS_TYPE, new Method(TO_MEMORY_METHOD_NAME, TO_MEMORY_METHOD_DESC));
-                generatorAdapter.unbox(carrierType);
-            } else {
-                generatorAdapter.loadArg(argIndex);
+                generatorAdapter.invokeVirtual(AN_NATIVE_VALUE_TYPE, ALLOC_ENCODE_METHOD);
             }
 
             generatorAdapter.storeLocal(memoryLocals[i]);
@@ -183,11 +177,10 @@ public class MethodsBytecodeGenerator implements Opcodes {
     }
 
     private boolean isAllocatorNeeded(@NotNull MethodData method) {
-        Class<?> clazz = method.returnType();
-        return !clazz.isPrimitive() && clazz != MemorySegment.class;
+        return !method.returnType().isPrimitive();
     }
 
-    private void revertMemoryToParameters() {
+    private void unmapParameters() {
         for (int i = 0; i < handleParamCount; i++) {
             int argIndex = i + (shouldHaveCodecAtFirst ? 1 : 0);
             Type carrierType = parameterCarrierTypes.get(i);
@@ -195,28 +188,27 @@ public class MethodsBytecodeGenerator implements Opcodes {
 
             generatorAdapter.loadArg(argIndex);
             generatorAdapter.loadLocal(memoryLocals[i]);
-            generatorAdapter.invokeStatic(INTERNAL_MEM_UTILS_TYPE, new Method(FROM_MEMORY_METHOD_NAME, FROM_MEMORY_METHOD_DESC));
+            generatorAdapter.invokeVirtual(AN_NATIVE_VALUE_TYPE, DECODE_METHOD);
         }
     }
 
     private void processResultIfPresent() {
         if (!hasReturn) return;
 
-        generatorAdapter.loadLocal(resultLocal);
         if (!shouldHaveCodecAtFirst) {
+            generatorAdapter.loadLocal(resultLocal);
             generatorAdapter.storeLocal(returnLocal);
             return;
         }
         generatorAdapter.loadArg(0);
-        generatorAdapter.invokeStatic(INTERNAL_MEM_UTILS_TYPE, new Method(RESULT_FROM_MEMORY_METHOD_NAME, RESULT_FROM_MEMORY_METHOD_DESC));
+        generatorAdapter.loadLocal(resultLocal);
+        generatorAdapter.invokeVirtual(MEM_CODEC_TYPE, DECODE_START_METHOD);
         handleReturnValueWithoutReturn(methodReturnType);
         generatorAdapter.storeLocal(returnLocal);
     }
 
     private void emitReturn() {
-        if (hasReturn) {
-            generatorAdapter.loadLocal(returnLocal);
-        }
+        if (hasReturn) generatorAdapter.loadLocal(returnLocal);
         generatorAdapter.returnValue();
     }
 
